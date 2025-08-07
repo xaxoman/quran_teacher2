@@ -14,8 +14,8 @@ export class RecitationService {
     this.model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     // Use gemini-2.5-flash-preview-tts for high-quality TTS
     this.ttsModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-preview-tts' });
-    // Initialize TTS service
-    this.ttsService = new TTSService(genAI);
+    // Initialize TTS service - no longer needs genAI instance
+    this.ttsService = new TTSService();
   }
 
   async getGreeting(language: string): Promise<{ text: string, audio?: string }> {
@@ -27,9 +27,9 @@ export class RecitationService {
 
     const greetingText = greetings[language as keyof typeof greetings] || greetings.en;
     
-    // Generate audio using Gemini TTS
+    // Generate audio using the updated TTS Service
     try {
-      console.log('🔊 Generating greeting audio using Gemini TTS...');
+      console.log('🔊 Generating greeting audio using updated TTS Service...');
       const audioResponse = await this.generateAudio(greetingText, language);
       return {
         text: greetingText,

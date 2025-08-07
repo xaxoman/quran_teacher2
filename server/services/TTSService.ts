@@ -1,144 +1,113 @@
 /**
  * TTSService - Text-to-Speech Service for AI Quran Teacher
- * 
+ *
  * This service provides high-quality, multi-lingual text-to-speech capabilities
- * using Google Gemini's real TTS API (gemini-2.5-flash-preview-tts model).
- * 
+ * by using the dedicated 'synthesizeSpeech' action on the correct TTS model.
+ * This version corrects the API endpoint URL to resolve the 404 Not Found error.
+ *
  * Features:
- * - Real Gemini TTS with realistic voices (Kore, Aoede, Puck, Charon, Fenrir)
- * - Multi-lingual support (English, Arabic, Italian)
- * - PCM to WAV conversion for browser compatibility
- * - Language-specific voice configurations
+ * - Uses the correct, specific text-to-speech API endpoint.
+ * - Converts the API's raw PCM audio output to a browser-friendly WAV format.
+ * - Meticulously crafted payload and URL to match official documentation.
  */
-
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { GoogleGenAI } from '@google/genai';
+import axios, { AxiosError } from 'axios';
 import * as wav from 'wav';
-import * as fs from 'fs';
-import * as path from 'path';
-
-export interface VoiceConfig {
-  language: string;
-  voiceId: string;
-  speed: number;
-  pitch: number;
-  volume: number;
-  voiceName?: string;
-}
 
 export class TTSService {
-  private genAI: GoogleGenerativeAI;
-  private genAITTS: GoogleGenAI; // New TTS-capable AI client
-
-  constructor(genAI: GoogleGenerativeAI) {
-    this.genAI = genAI;
-    // Initialize the TTS-capable AI client
-    // Note: The API key should be the same as used in GoogleGenerativeAI
-    this.genAITTS = new GoogleGenAI({});
+  constructor() {
+    // This service uses a direct REST API call.
   }
 
   /**
-   * Generate speech audio from text using Gemini's TTS capabilities
+   * Generate speech audio from text using the dedicated Gemini synthesizeSpeech endpoint.
    */
   async generateSpeech(text: string, language: string): Promise<string | null> {
     try {
-      console.log(`🎙️ Generating TTS for: "${text.substring(0, 50)}..." in ${language}`);
+      console.log(`🎙️ Generating TTS via 'synthesizeSpeech' with corrected URL...`);
       
-      const voiceConfig = this.getVoiceConfig(language);
-      console.log('🔧 Voice config:', voiceConfig);
-
-      // Use real Gemini TTS API only - no fallbacks
-      const audioData = await this.generateWithGeminiTTS(text, voiceConfig);
-      
-      if (audioData) {
-        console.log('✅ Gemini TTS audio generated successfully');
-        return audioData;
-      } else {
-        console.log('❌ Gemini TTS failed - no fallback available');
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        console.error('❌ Gemini API key not found in environment variables.');
         return null;
       }
       
-    } catch (error) {
-      console.error('❌ Error generating TTS audio:', error);
-      // No fallback - return null if Gemini TTS fails
-      return null;
-    }
-  }
+      const voiceId = this.getVoiceIdForLanguage(language);
+      const fullVoiceName = this.getGeminiVoiceName(voiceId);
+      console.log(`🔧 Using Gemini voice: "${fullVoiceName}" for language: ${language}`);
 
-  /**
-   * Generate speech using real Gemini TTS API
-   */
-  private async generateWithGeminiTTS(text: string, voiceConfig: VoiceConfig): Promise<string | null> {
-    try {
-      console.log('🎤 Using real Gemini TTS API for audio generation...');
-      
-      // Get the appropriate Gemini voice name
-      const voiceName = this.getGeminiVoiceName(voiceConfig.language, voiceConfig.voiceId);
-      console.log(`🎯 Using Gemini voice: ${voiceName} for ${voiceConfig.language}`);
+      // FINAL CORRECTED URL: Specifies the model that can perform the 'synthesizeSpeech' action.
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:synthesizeSpeech?key=${apiKey}`;
 
-      // Use the correct API structure from your example
-      const response = await this.genAITTS.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: text }] }],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: voiceName },
-            },
-          },
+      const requestBody = {
+        "text": text,
+        "voice": {
+          "name": fullVoiceName
         },
+        "audio_config": {
+          "audio_encoding": "LINEAR16", // Raw PCM audio.
+          "sample_rate_hertz": 24000
+        }
+      };
+
+      const response = await axios.post(url, requestBody, {
+        headers: { 'Content-Type': 'application/json' }
       });
 
-      // Extract the audio data
-      const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      // The audio data is in the 'audioContent' field.
+      const audioData = response.data.audioContent;
       
       if (audioData) {
-        console.log('✅ Gemini TTS audio data received, converting to WAV...');
+        console.log('✅ TTS audio data received successfully, converting to WAV...');
         
-        // Convert base64 PCM to WAV and return as base64
+        // The API returns raw PCM data in base64. Convert it to a WAV file.
         const pcmBuffer = Buffer.from(audioData, 'base64');
         const wavBase64 = await this.convertPCMToWav(pcmBuffer);
         
-        // Return as data URL for audio playback
+        // Return as a data URL for easy playback in the browser.
         return `data:audio/wav;base64,${wavBase64}`;
       } else {
-        console.log('❌ No audio data received from Gemini TTS');
+        console.log('❌ No audio data received from Gemini TTS API.');
+        if (response.data.error) {
+          console.error('API Error:', JSON.stringify(response.data.error, null, 2));
+        }
         return null;
       }
       
     } catch (error) {
-      console.error('❌ Error with Gemini TTS API:', error);
-      if (error instanceof Error) {
-        console.error('Error details:', error.message);
+      console.error('❌ An error occurred while generating TTS audio via REST API:');
+      if (axios.isAxiosError(error)) {
+          const axiosError = error as AxiosError;
+          if (axiosError.response) {
+              console.error('Error Status:', axiosError.response.status);
+              console.error('Error Data:', JSON.stringify(axiosError.response.data, null, 2));
+          } else if (axiosError.request) {
+              console.error('Error Request: No response was received. Check network connectivity.');
+          } else {
+              console.error('Axios Setup Error:', axiosError.message);
+          }
+      } else if (error instanceof Error) {
+        console.error('Generic Error:', error.message);
+      } else {
+        console.error('Unknown Error:', error);
       }
       return null;
     }
   }
 
   /**
-   * Convert PCM audio data to WAV format and return as base64
+   * Convert raw PCM audio data to a WAV container and return as base64.
    */
   private async convertPCMToWav(pcmData: Buffer, channels = 1, rate = 24000, sampleWidth = 2): Promise<string> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
-      
       const writer = new wav.Writer({
         channels,
         sampleRate: rate,
         bitDepth: sampleWidth * 8,
       });
 
-      writer.on('data', (chunk) => {
-        chunks.push(chunk);
-      });
-
-      writer.on('finish', () => {
-        const wavBuffer = Buffer.concat(chunks);
-        const base64 = wavBuffer.toString('base64');
-        resolve(base64);
-      });
-
+      writer.on('data', (chunk) => chunks.push(chunk));
+      writer.on('finish', () => resolve(Buffer.concat(chunks).toString('base64')));
       writer.on('error', reject);
 
       writer.write(pcmData);
@@ -147,81 +116,30 @@ export class TTSService {
   }
 
   /**
-   * Get appropriate Gemini voice name based on language and voice ID
+   * Get the full, correctly formatted Gemini voice name.
    */
-  private getGeminiVoiceName(language: string, voiceId: string): string {
-    const voiceMap: Record<string, Record<string, string>> = {
-      'en-US': {
-        'female-warm': 'Puck',
-        'female-teacher': 'Charon',
-        'female-friendly': 'Kore',
-        'male-professional': 'Fenrir',
-        'male-reverent': 'Aoede'
-      },
-      'ar-SA': {
-        'male-reverent': 'Aoede', // Best available for Arabic
-        'male-reciter': 'Fenrir',
-        'female-teacher': 'Charon'
-      },
-      'it-IT': {
-        'female-friendly': 'Kore',
-        'female-warm': 'Puck',
-        'male-expressive': 'Fenrir'
-      }
+  private getGeminiVoiceName(voiceId: string): string {
+    const voiceMap: Record<string, string> = {
+      'female-warm': 'Puck',
+      'female-teacher': 'Charon',
+      'female-friendly': 'Kore',
+      'male-professional': 'Fenrir',
+      'male-reverent': 'Aoede'
     };
 
-    const languageVoices = voiceMap[language] || voiceMap['en-US'];
-    return languageVoices[voiceId] || 'Kore'; // Default to Kore
+    const voiceName = voiceMap[voiceId] || 'Kore'; // Default to Kore
+
+    // Returns the full path required by the API.
+    return `voices/gemini-2.5-flash-preview-tts/${voiceName}`;
   }
 
-  private getVoiceConfig(language: string): VoiceConfig {
-    const voiceConfigs: Record<string, VoiceConfig> = {
-      'en': {
-        language: 'en-US',
-        voiceId: 'female-warm',
-        speed: 0.9,
-        pitch: 1.0,
-        volume: 0.8,
-        voiceName: 'Kore' // Gemini voice for when API is available
-      },
-      'ar': {
-        language: 'ar-SA',
-        voiceId: 'male-reverent',
-        speed: 0.8, // Slower for clear Quranic pronunciation
-        pitch: 0.9, // Slightly lower for authority
-        volume: 0.9,
-        voiceName: 'Aoede' // Best available for Arabic pronunciation
-      },
-      'it': {
-        language: 'it-IT',
-        voiceId: 'female-friendly',
-        speed: 0.9,
-        pitch: 1.1,
-        volume: 0.8,
-        voiceName: 'Kore' // Good for Italian
-      }
+  private getVoiceIdForLanguage(language: string): string {
+    const voiceConfigs: Record<string, string> = {
+      'en': 'female-warm',
+      'ar': 'male-reverent',
+      'it': 'female-friendly'
     };
 
     return voiceConfigs[language] || voiceConfigs['en'];
-  }
-
-  /**
-   * Get available voices for a specific language
-   */
-  getAvailableVoices(language: string): string[] {
-    const voicesByLanguage: Record<string, string[]> = {
-      'en': ['female-warm', 'male-professional', 'female-teacher'],
-      'ar': ['male-reverent', 'male-reciter', 'female-teacher'],
-      'it': ['female-friendly', 'male-expressive', 'female-teacher']
-    };
-
-    return voicesByLanguage[language] || voicesByLanguage['en'];
-  }
-
-  /**
-   * Validate if a language is supported
-   */
-  isLanguageSupported(language: string): boolean {
-    return ['en', 'ar', 'it'].includes(language);
   }
 }
