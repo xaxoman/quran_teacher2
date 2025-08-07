@@ -70,11 +70,16 @@ export const TTSTestPanel: React.FC = () => {
 
       {/* TTS Support Status */}
       <div style={{ marginBottom: '1rem', padding: '0.5rem', backgroundColor: isSupported ? '#f0fdf4' : '#fef2f2', borderRadius: '0.25rem' }}>
-        <strong>TTS Support:</strong> {isSupported ? '✅ Supported' : '❌ Not Supported'}
+        <strong>Browser TTS Support:</strong> {isSupported ? '✅ Supported' : '❌ Not Supported'}
         {isSupported && (
           <span style={{ marginLeft: '1rem', fontSize: '0.875rem', color: '#6b7280' }}>
             ({voices.length} voices available)
           </span>
+        )}
+        {!isSupported && (
+          <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#dc2626' }}>
+            <strong>Note:</strong> This is for testing browser TTS only. The main app uses server-side Gemini TTS which works perfectly regardless of browser support.
+          </div>
         )}
       </div>
 

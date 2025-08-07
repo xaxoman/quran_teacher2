@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useEffect } from 'react';
 
 interface TTSConfig {
   language: string;
@@ -22,7 +22,7 @@ export const useTTS = () => {
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   // Check TTS support on mount
-  useState(() => {
+  useEffect(() => {
     const supported = 'speechSynthesis' in window;
     setIsSupported(supported);
     
@@ -47,11 +47,12 @@ export const useTTS = () => {
         speechSynthesis.onvoiceschanged = loadVoices;
       }
     }
-  });
+  }, []);
 
   /**
    * Play audio from server-provided audio data or TTS instruction
    */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const playAudio = useCallback(async (audioData: string | undefined) => {
     if (!audioData) {
       console.log('❌ No audio data provided');
@@ -59,7 +60,7 @@ export const useTTS = () => {
     }
 
     try {
-      // Check if this is a TTS instruction
+      // Check if this is a TTS instruction (only for testing)
       if (audioData.startsWith('tts-instruction:')) {
         const instructionBase64 = audioData.replace('tts-instruction:', '');
         const instructionJson = atob(instructionBase64);
@@ -70,8 +71,9 @@ export const useTTS = () => {
         return;
       }
 
-      // Check if it's a regular base64 audio
+      // Check if it's a regular base64 audio (from Gemini TTS)
       if (audioData.startsWith('data:audio/')) {
+        console.log('🎵 Playing Gemini TTS audio directly');
         await playBase64Audio(audioData);
         return;
       }
@@ -84,131 +86,9 @@ export const useTTS = () => {
   }, []);
 
   /**
-   * Play audio using enhanced Speech Synthesis with better voice selection
-   */
-  const playWithSpeechSynthesis = useCallback(async (instruction: TTSInstruction) => {
-    if (!isSupported) {
-      console.log('❌ Speech synthesis not supported');
-      return;
-    }
-
-    try {
-      // Stop any current playback
-      if (currentUtteranceRef.current) {
-        speechSynthesis.cancel();
-      }
-
-      setIsPlaying(true);
-      
-      const utterance = new SpeechSynthesisUtterance(instruction.text);
-      currentUtteranceRef.current = utterance;
-
-      // Get and set the best voice for the language
-      const voice = getBestVoice(instruction.language, instruction.voiceConfig.voiceId);
-      if (voice) {
-        utterance.voice = voice;
-        console.log(`🎯 Using voice: ${voice.name} (${voice.lang})`);
-      }
-
-      // Configure voice parameters
-      utterance.rate = instruction.voiceConfig.speed;
-      utterance.pitch = instruction.voiceConfig.pitch;
-      utterance.volume = instruction.voiceConfig.volume;
-      utterance.lang = instruction.voiceConfig.language;
-
-      // Set up event handlers
-      utterance.onstart = () => {
-        console.log('🔊 TTS playback started');
-        setIsPlaying(true);
-      };
-
-      utterance.onend = () => {
-        console.log('✅ TTS playback completed');
-        setIsPlaying(false);
-        currentUtteranceRef.current = null;
-      };
-
-      utterance.onerror = (event) => {
-        console.error('❌ TTS playback error:', event.error);
-        setIsPlaying(false);
-        currentUtteranceRef.current = null;
-      };
-
-      // Start playback
-      speechSynthesis.speak(utterance);
-
-    } catch (error) {
-      console.error('❌ Error in speech synthesis:', error);
-      setIsPlaying(false);
-    }
-  }, [isSupported]);
-
-  /**
-   * Play base64 encoded audio
-   */
-  const playBase64Audio = useCallback(async (base64Audio: string) => {
-    try {
-      setIsPlaying(true);
-      
-      // Create audio element if it doesn't exist
-      if (!audioRef.current) {
-        audioRef.current = new Audio();
-      }
-
-      const audio = audioRef.current;
-      audio.src = base64Audio;
-      
-      audio.onloadeddata = () => {
-        console.log('🔊 Base64 audio loaded, starting playback');
-      };
-
-      audio.onended = () => {
-        console.log('✅ Base64 audio playback completed');
-        setIsPlaying(false);
-      };
-
-      audio.onerror = (error) => {
-        console.error('❌ Base64 audio playback error:', error);
-        setIsPlaying(false);
-      };
-
-      await audio.play();
-
-    } catch (error) {
-      console.error('❌ Error playing base64 audio:', error);
-      setIsPlaying(false);
-    }
-  }, []);
-
-  /**
-   * Stop current audio playback
-   */
-  const stopAudio = useCallback(() => {
-    try {
-      // Stop speech synthesis
-      if (currentUtteranceRef.current) {
-        speechSynthesis.cancel();
-        currentUtteranceRef.current = null;
-      }
-
-      // Stop regular audio
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      }
-
-      setIsPlaying(false);
-      console.log('🔇 Audio playback stopped');
-
-    } catch (error) {
-      console.error('❌ Error stopping audio:', error);
-    }
-  }, []);
-
-  /**
    * Get the best available voice for a language and voice type
    */
-  const getBestVoice = (language: string, voiceId: string): SpeechSynthesisVoice | null => {
+  const getBestVoice = useCallback((language: string, voiceId: string): SpeechSynthesisVoice | null => {
     const voices = speechSynthesis.getVoices();
     
     if (voices.length === 0) {
@@ -304,7 +184,137 @@ export const useTTS = () => {
     }
 
     return bestVoice;
-  };
+  }, []);
+
+  /**
+   * Play audio using enhanced Speech Synthesis with better voice selection
+   * Note: This is only used for TTS instructions (testing), not regular Gemini TTS audio
+   */
+  const playWithSpeechSynthesis = useCallback(async (instruction: TTSInstruction) => {
+    if (!isSupported) {
+      console.log('ℹ️ Browser Speech Synthesis not supported - this is normal and expected');
+      console.log('🔄 The app uses Gemini TTS primarily, browser TTS is only for testing');
+      // Don't return here - try to play as regular audio instead
+      try {
+        await playBase64Audio(`data:audio/wav;base64,${btoa(instruction.text)}`);
+      } catch (error) {
+        console.error('❌ Fallback audio playback failed:', error);
+      }
+      return;
+    }
+
+    try {
+      // Stop any current playback
+      if (currentUtteranceRef.current) {
+        speechSynthesis.cancel();
+      }
+
+      setIsPlaying(true);
+      
+      const utterance = new SpeechSynthesisUtterance(instruction.text);
+      currentUtteranceRef.current = utterance;
+
+      // Get and set the best voice for the language
+      const voice = getBestVoice(instruction.language, instruction.voiceConfig.voiceId);
+      if (voice) {
+        utterance.voice = voice;
+        console.log(`🎯 Using voice: ${voice.name} (${voice.lang})`);
+      }
+
+      // Configure voice parameters
+      utterance.rate = instruction.voiceConfig.speed;
+      utterance.pitch = instruction.voiceConfig.pitch;
+      utterance.volume = instruction.voiceConfig.volume;
+      utterance.lang = instruction.voiceConfig.language;
+
+      // Set up event handlers
+      utterance.onstart = () => {
+        console.log('🔊 TTS playback started');
+        setIsPlaying(true);
+      };
+
+      utterance.onend = () => {
+        console.log('✅ TTS playback completed');
+        setIsPlaying(false);
+        currentUtteranceRef.current = null;
+      };
+
+      utterance.onerror = (event) => {
+        console.error('❌ TTS playback error:', event.error);
+        setIsPlaying(false);
+        currentUtteranceRef.current = null;
+      };
+
+      // Start playback
+      speechSynthesis.speak(utterance);
+
+    } catch (error) {
+      console.error('❌ Error in speech synthesis:', error);
+      setIsPlaying(false);
+    }
+  }, [isSupported, getBestVoice]);
+
+  /**
+   * Play base64 encoded audio
+   */
+  const playBase64Audio = useCallback(async (base64Audio: string) => {
+    try {
+      setIsPlaying(true);
+      
+      // Create audio element if it doesn't exist
+      if (!audioRef.current) {
+        audioRef.current = new Audio();
+      }
+
+      const audio = audioRef.current;
+      audio.src = base64Audio;
+      
+      audio.onloadeddata = () => {
+        console.log('🔊 Base64 audio loaded, starting playback');
+      };
+
+      audio.onended = () => {
+        console.log('✅ Base64 audio playback completed');
+        setIsPlaying(false);
+      };
+
+      audio.onerror = (error) => {
+        console.error('❌ Base64 audio playback error:', error);
+        setIsPlaying(false);
+      };
+
+      await audio.play();
+
+    } catch (error) {
+      console.error('❌ Error playing base64 audio:', error);
+      setIsPlaying(false);
+    }
+  }, []);
+
+  /**
+   * Stop current audio playback
+   */
+  const stopAudio = useCallback(() => {
+    try {
+      // Stop speech synthesis
+      if (currentUtteranceRef.current) {
+        speechSynthesis.cancel();
+        currentUtteranceRef.current = null;
+      }
+
+      // Stop regular audio
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+
+      setIsPlaying(false);
+      console.log('🔇 Audio playback stopped');
+
+    } catch (error) {
+      console.error('❌ Error stopping audio:', error);
+    }
+  }, []);
 
   /**
    * Get available voices for debugging
