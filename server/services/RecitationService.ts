@@ -1,14 +1,21 @@
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { Session } from '../types/Session';
+import { TTSService } from './TTSService';
 
 export class RecitationService {
   private model: GenerativeModel;
+  private ttsModel: GenerativeModel;
   private genAI: GoogleGenerativeAI;
+  private ttsService: TTSService;
 
   constructor(genAI: GoogleGenerativeAI) {
     this.genAI = genAI;
     // Use gemini-2.5-flash for the newer and more advanced model
     this.model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // Use gemini-2.5-flash-preview-tts for high-quality TTS
+    this.ttsModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-preview-tts' });
+    // Initialize TTS service
+    this.ttsService = new TTSService(genAI);
   }
 
   async getGreeting(language: string): Promise<{ text: string, audio?: string }> {
@@ -20,19 +27,18 @@ export class RecitationService {
 
     const greetingText = greetings[language as keyof typeof greetings] || greetings.en;
     
-    // Audio generation is temporarily disabled until proper TTS integration
-    // try {
-    //   const audioResponse = await this.generateAudio(greetingText, language);
-    //   return {
-    //     text: greetingText,
-    //     audio: audioResponse
-    //   };
-    // } catch (error) {
-    //   console.error('Error generating greeting audio:', error);
-    //   return { text: greetingText };
-    // }
-    
-    return { text: greetingText };
+    // Generate audio using Gemini TTS
+    try {
+      console.log('🔊 Generating greeting audio using Gemini TTS...');
+      const audioResponse = await this.generateAudio(greetingText, language);
+      return {
+        text: greetingText,
+        audio: audioResponse
+      };
+    } catch (error) {
+      console.error('❌ Error generating greeting audio:', error);
+      return { text: greetingText };
+    }
   }
 
   async processAudio(audioData: ArrayBuffer, session: Session, isComplete: boolean): Promise<any> {
@@ -41,10 +47,13 @@ export class RecitationService {
       const transcription = await this.transcribeAudio(audioData);
       
       if (!transcription) {
+        const clarificationMessage = this.getClarificationMessage(session.language);
+        const clarificationAudio = await this.generateAudio(clarificationMessage, session.language);
+        
         return {
           type: 'clarification',
-          text: this.getClarificationMessage(session.language)
-          // audio: await this.generateAudio(this.getClarificationMessage(session.language), session.language)
+          text: clarificationMessage,
+          audio: clarificationAudio
         };
       }
 
@@ -103,13 +112,14 @@ export class RecitationService {
       const responseText = result.response.text();
       console.log('✅ AI response generated:', responseText.substring(0, 100) + '...');
 
-      // Audio generation temporarily disabled
-      // const audioResponse = await this.generateAudio(responseText, session.language);
+      // Generate audio for the response
+      console.log('🔊 Generating audio for AI response...');
+      const audioResponse = await this.generateAudio(responseText, session.language);
 
       const response = {
         type: 'response',
         text: responseText,
-        // audio: audioResponse,
+        audio: audioResponse,
         transcription: text
       };
 
@@ -133,13 +143,14 @@ export class RecitationService {
       const result = await this.model.generateContent(feedbackPrompt);
       const feedbackText = result.response.text();
 
-      // Audio generation temporarily disabled
-      // const audioResponse = await this.generateAudio(feedbackText, session.language);
+      // Generate audio for feedback
+      console.log('🔊 Generating audio for feedback...');
+      const audioResponse = await this.generateAudio(feedbackText, session.language);
 
       return {
         type: 'feedback',
-        text: feedbackText
-        // audio: audioResponse
+        text: feedbackText,
+        audio: audioResponse
       };
     } catch (error) {
       console.error('Error providing feedback:', error);
@@ -148,21 +159,41 @@ export class RecitationService {
   }
 
   private async generateAudio(text: string, language: string): Promise<string | undefined> {
-    // Audio generation is temporarily disabled
-    // TODO: Implement proper TTS service (e.g., Google Text-to-Speech, AWS Polly, or browser's speechSynthesis)
-    console.log(`[Audio disabled] Would generate audio for: "${text.substring(0, 50)}..." in ${language}`);
-    return undefined;
-    
-    // Original implementation commented out until proper TTS service is integrated:
-    // try {
-    //   const voiceConfig = this.getVoiceConfig(language);
-    //   const prompt = `Generate natural speech audio for: "${text}" using ${voiceConfig}`;
-    //   const result = await this.ttsModel.generateContent(prompt);
-    //   return result.response.text();
-    // } catch (error) {
-    //   console.error('Error generating audio:', error);
-    //   return undefined;
-    // }
+    try {
+      console.log(`🎙️ Generating TTS for: "${text.substring(0, 50)}..." in ${language}`);
+      
+      // Use the new TTS service for better audio generation
+      const audioData = await this.ttsService.generateSpeech(text, language);
+      
+      if (audioData) {
+        console.log('✅ TTS audio generated successfully');
+        return audioData;
+      } else {
+        console.log('⚠️ TTS generation returned null, no audio will be played');
+        return undefined;
+      }
+      
+    } catch (error) {
+      console.error('❌ Error generating TTS audio:', error);
+      // Return undefined if TTS fails, so the app continues to work with text only
+      return undefined;
+    }
+  }
+
+  private convertToBase64Audio(audioData: string): string {
+    try {
+      // If the audioData is already a valid audio URL or base64, return it
+      if (audioData.startsWith('data:audio/') || audioData.startsWith('http')) {
+        return audioData;
+      }
+      
+      // Otherwise, assume it's raw audio data and convert to base64
+      const base64 = Buffer.from(audioData, 'utf8').toString('base64');
+      return `data:audio/wav;base64,${base64}`;
+    } catch (error) {
+      console.error('Error converting audio to base64:', error);
+      return '';
+    }
   }
 
   private async transcribeAudio(audioData: ArrayBuffer): Promise<string | null> {
@@ -219,13 +250,15 @@ Provide the continuation in clear, classical Arabic, followed by a brief encoura
 
       const result = await this.model.generateContent(continuationPrompt);
       const responseText = result.response.text();
-      // Audio generation temporarily disabled
-      // const audioResponse = await this.generateAudio(responseText, session.language);
+      
+      // Generate audio for continuation
+      console.log('🔊 Generating audio for continuation...');
+      const audioResponse = await this.generateAudio(responseText, session.language);
 
       return {
         type: 'continuation',
-        text: responseText
-        // audio: audioResponse
+        text: responseText,
+        audio: audioResponse
       };
     } catch (error) {
       console.error('Error providing continuation:', error);
@@ -237,13 +270,15 @@ Provide the continuation in clear, classical Arabic, followed by a brief encoura
     const prompt = this.buildPrompt(recitation, session);
     const result = await this.model.generateContent(prompt);
     const responseText = result.response.text();
-    // Audio generation temporarily disabled
-    // const audioResponse = await this.generateAudio(responseText, session.language);
+    
+    // Generate audio for recitation response
+    console.log('🔊 Generating audio for recitation response...');
+    const audioResponse = await this.generateAudio(responseText, session.language);
 
     return {
       type: 'acknowledgment',
       text: responseText,
-      // audio: audioResponse,
+      audio: audioResponse,
       transcription: recitation
     };
   }
@@ -273,15 +308,5 @@ Provide the continuation in clear, classical Arabic, followed by a brief encoura
     };
 
     return messages[language as keyof typeof messages] || messages.en;
-  }
-
-  private getVoiceConfig(language: string): string {
-    const configs = {
-      en: 'a clear, warm English voice',
-      ar: 'a clear, respectful Arabic voice suitable for Quranic recitation',
-      it: 'a clear, warm Italian voice'
-    };
-
-    return configs[language as keyof typeof configs] || configs.en;
   }
 }

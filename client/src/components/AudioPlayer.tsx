@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { useTTS } from '../hooks/useTTS';
 
 interface AudioPlayerProps {
   audioData?: string;
@@ -16,30 +17,39 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
+  const { playAudio: playTTSAudio, stopAudio: stopTTSAudio } = useTTS();
 
   // Function to play audio
   const playAudio = useCallback(async () => {
-    if (audioRef.current && audioData) {
+    if (audioData) {
       try {
-        // Set the audio source
-        if (audioData.startsWith('data:') || audioData.includes('base64')) {
-          audioRef.current.src = audioData;
-        } else {
-          // Handle blob URL or regular URL
-          audioRef.current.src = audioData;
+        // Check if this is TTS data (starts with 'tts-instruction:')
+        if (audioData.startsWith('tts-instruction:')) {
+          await playTTSAudio(audioData);
+          setIsPlaying(true);
+          return;
         }
-        
-        await audioRef.current.play();
-        setIsPlaying(true);
+
+        // Handle regular audio data
+        if (audioRef.current) {
+          if (audioData.startsWith('data:') || audioData.includes('base64')) {
+            audioRef.current.src = audioData;
+          } else {
+            audioRef.current.src = audioData;
+          }
+          
+          await audioRef.current.play();
+          setIsPlaying(true);
+        }
       } catch (error) {
         console.error('Error playing audio:', error);
       }
     }
-  }, [audioData]);
+  }, [audioData, playTTSAudio]);
 
   // Auto-play when audioData changes
   useEffect(() => {
-    if (audioData && audioRef.current && autoPlay) {
+    if (audioData && autoPlay) {
       playAudio();
     }
   }, [audioData, autoPlay, playAudio]);
@@ -50,6 +60,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       audioRef.current.pause();
       setIsPlaying(false);
     }
+    // Also stop TTS
+    stopTTSAudio();
   };
 
   // Toggle play/pause
@@ -159,36 +171,59 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   );
 };
 
-// Global Audio Player Hook for managing app-wide audio
+// Global Audio Player Hook for managing app-wide audio with TTS support
 export const useAudioPlayer = () => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [currentAudio, setCurrentAudio] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const { playAudio: playTTSAudio, stopAudio: stopTTSAudio, isPlaying: isTTSPlaying } = useTTS();
 
-  // Play audio from message
-  const playMessageAudio = (audioData: string) => {
-    setCurrentAudio(audioData);
-    if (audioRef.current) {
-      audioRef.current.src = audioData;
-      audioRef.current.play().catch(error => {
-        console.error('Error playing audio:', error);
-      });
+  // Play audio from message with TTS support
+  const playMessageAudio = async (audioData: string) => {
+    try {
+      console.log('🔊 Playing message audio:', audioData?.substring(0, 50) + '...');
+      setCurrentAudio(audioData);
+
+      // Check if this is TTS instruction
+      if (audioData.startsWith('tts-instruction:')) {
+        await playTTSAudio(audioData);
+        setIsPlaying(true);
+        return;
+      }
+
+      // Handle regular audio
+      if (audioRef.current && (audioData.startsWith('data:audio/') || audioData.startsWith('http'))) {
+        audioRef.current.src = audioData;
+        await audioRef.current.play();
+        setIsPlaying(true);
+      } else {
+        console.log('⚠️ No valid audio data provided or audio element not ready');
+      }
+    } catch (error) {
+      console.error('❌ Error playing message audio:', error);
+      setIsPlaying(false);
     }
   };
 
   // Stop current audio
   const stopAudio = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+    try {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      stopTTSAudio();
       setIsPlaying(false);
+      setCurrentAudio(null);
+    } catch (error) {
+      console.error('Error stopping audio:', error);
     }
   };
 
   return {
     audioRef,
     currentAudio,
-    isPlaying,
+    isPlaying: isPlaying || isTTSPlaying,
     playMessageAudio,
     stopAudio,
     AudioElement: () => (

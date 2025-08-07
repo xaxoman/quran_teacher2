@@ -6,6 +6,7 @@ import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useAudioPlayer } from './AudioPlayer';
 import { MicrophoneButton, VoiceActivityIndicator } from './MicrophoneButton';
 import { ProgressTracker } from './ProgressTracker';
+import { TTSTestPanel } from './TTSTestPanel';
 
 export const RecitationInterface: React.FC = () => {
   const { t } = useTranslation();
@@ -37,7 +38,7 @@ export const RecitationInterface: React.FC = () => {
     microphoneLevel,
     isMonitoring
   } = useSpeechRecognition();
-  const { playMessageAudio, AudioElement } = useAudioPlayer();
+  const { playMessageAudio, AudioElement, isPlaying: isAudioPlaying } = useAudioPlayer();
 
   // Popular surahs for quick selection
   const popularSurahs = [
@@ -313,12 +314,17 @@ export const RecitationInterface: React.FC = () => {
                 {t('processing')} <VoiceActivityIndicator isActive={true} />
               </div>
             )}
-            {isListening && (
+            {isAudioPlaying && (
+              <div style={{ color: '#8b5cf6', fontWeight: '500', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                🔊 AI Speaking... <VoiceActivityIndicator isActive={true} />
+              </div>
+            )}
+            {isListening && !isAudioPlaying && (
               <div style={{ color: '#10b981', fontWeight: '500', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
                 {t('listening')} <VoiceActivityIndicator isActive={true} />
               </div>
             )}
-            {!isProcessing && !isListening && (
+            {!isProcessing && !isListening && !isAudioPlaying && (
               <div style={{ color: '#6b7280' }}>
                 {t('speakNow')}
               </div>
@@ -383,6 +389,7 @@ export const RecitationInterface: React.FC = () => {
               Session: {sessionId ? '✅' : '❌'} | 
               Monitoring: {isMonitoring ? '✅' : '❌'} | 
               Listening: {isListening ? '✅' : '❌'} | 
+              Audio: {isAudioPlaying ? '🔊' : '🔇'} | 
               Muted: {isMicrophoneMuted ? '🔇' : '🎤'} | 
               Level: {Math.round(microphoneLevel * 100)}%
             </div>
@@ -454,6 +461,9 @@ export const RecitationInterface: React.FC = () => {
       
       {/* Hidden Audio Element for Playback */}
       <AudioElement />
+
+      {/* TTS Test Panel for Development */}
+      <TTSTestPanel />
     </div>
   );
 };
