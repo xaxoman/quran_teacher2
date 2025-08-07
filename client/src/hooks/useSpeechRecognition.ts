@@ -13,17 +13,24 @@ declare global {
 export const useSpeechRecognition = () => {
   const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
   
   const {
     currentLanguage,
     isListening,
     setListening,
     setError,
-    addToRecitationHistory
+    addToRecitationHistory,
+    addMessage
   } = useAppStore();
   
   const { sendTextInput } = useSocket();
   const [isSupported, setIsSupported] = useState(false);
+  const [isMicrophoneMuted, setIsMicrophoneMuted] = useState(false);
+  const [microphoneLevel, setMicrophoneLevel] = useState(0);
+  const [isMonitoring, setIsMonitoring] = useState(false);
 
   // Check if Speech Recognition is supported
   useEffect(() => {
@@ -44,6 +51,88 @@ export const useSpeechRecognition = () => {
     }
   }, []);
 
+  // Function to monitor microphone levels
+  const startMicrophoneMonitoring = useCallback(async () => {
+    try {
+      console.log('🎚️ Starting microphone level monitoring...');
+      
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100
+        }
+      });
+      
+      micStreamRef.current = stream;
+      
+      // Create audio context for analyzing microphone input
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      analyserRef.current.fftSize = 256;
+      analyserRef.current.smoothingTimeConstant = 0.8;
+      
+      source.connect(analyserRef.current);
+      
+      // Monitor audio levels
+      const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+      
+      const checkMicLevel = () => {
+        if (analyserRef.current && isMonitoring) {
+          analyserRef.current.getByteFrequencyData(dataArray);
+          
+          // Calculate average volume level
+          const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+          const normalizedLevel = average / 255;
+          
+          console.log('🎚️ Microphone level:', normalizedLevel.toFixed(3));
+          setMicrophoneLevel(normalizedLevel);
+          
+          // Consider microphone muted if level is consistently very low
+          if (normalizedLevel < 0.01) {
+            setIsMicrophoneMuted(true);
+          } else {
+            setIsMicrophoneMuted(false);
+          }
+          
+          // Continue monitoring while monitoring flag is true
+          if (isMonitoring) {
+            requestAnimationFrame(checkMicLevel);
+          }
+        }
+      };
+      
+      setIsMonitoring(true);
+      checkMicLevel();
+      
+    } catch (error) {
+      console.error('❌ Error starting microphone monitoring:', error);
+    }
+  }, [isMonitoring]);
+
+  // Function to stop microphone monitoring
+  const stopMicrophoneMonitoring = useCallback(() => {
+    console.log('🔇 Stopping microphone monitoring...');
+    
+    setIsMonitoring(false);
+    
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(track => track.stop());
+      micStreamRef.current = null;
+    }
+    
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    
+    analyserRef.current = null;
+    setMicrophoneLevel(0);
+    setIsMicrophoneMuted(false);
+  }, []);
+
   const setupSpeechRecognition = useCallback(() => {
     console.log('Setting up speech recognition...');
     if (!recognitionRef.current) {
@@ -54,9 +143,9 @@ export const useSpeechRecognition = () => {
     const recognition = recognitionRef.current;
     console.log('Configuring recognition settings...');
     
-    // Configure recognition
-    recognition.continuous = false; // Changed from true to false for better control
-    recognition.interimResults = true;
+    // Configure recognition with better settings
+    recognition.continuous = false; // Single recognition session
+    recognition.interimResults = true; // Show interim results
     recognition.maxAlternatives = 1;
     
     // Set language based on current language
@@ -66,7 +155,7 @@ export const useSpeechRecognition = () => {
       'it': 'it-IT'
     };
     
-    recognition.lang = languageMap[currentLanguage] || 'ar-SA';
+    recognition.lang = languageMap[currentLanguage] || 'en-US';
     console.log('Recognition language set to:', recognition.lang);
 
     // Event handlers
@@ -77,13 +166,13 @@ export const useSpeechRecognition = () => {
     };
 
     recognition.onresult = (event: any) => {
-      console.log('Speech recognition result event:', event);
+      console.log('🎯 Speech recognition result event:', event);
       let finalTranscript = '';
       let interimTranscript = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
-        console.log(`Result ${i}: "${transcript}" (isFinal: ${event.results[i].isFinal})`);
+        console.log(`📝 Result ${i}: "${transcript}" (isFinal: ${event.results[i].isFinal})`);
         
         if (event.results[i].isFinal) {
           finalTranscript += transcript;
@@ -92,22 +181,38 @@ export const useSpeechRecognition = () => {
         }
       }
       
-      console.log('Interim transcript:', interimTranscript);
+      console.log('📄 Interim transcript:', interimTranscript);
 
       if (finalTranscript.trim()) {
-        console.log('Final transcript:', finalTranscript);
+        console.log('✅ Final transcript received:', finalTranscript);
+        
+        // Add transcription as user message in chat
+        console.log('💬 Adding transcription to chat...');
+        addMessage({
+          id: `transcript-${Date.now()}`,
+          type: 'user',
+          text: finalTranscript.trim(),
+          timestamp: new Date(),
+          transcription: finalTranscript.trim()
+        });
+        console.log('✅ Message added to chat');
         
         // Add to recitation history
         addToRecitationHistory(finalTranscript.trim());
         
-        // Send to server for AI processing
-        console.log('Sending text input to server:', finalTranscript.trim());
+        // Send to server for AI processing (skip adding user message since we already added it)
+        console.log('📤 Sending text input to server:', finalTranscript.trim());
         
-        // Stop listening after getting a final result to prevent continuous recording
-        recognition.stop();
-        
-        sendTextInput(finalTranscript.trim());
+        sendTextInput(finalTranscript.trim(), true);
       }
+    };
+
+    recognition.onspeechstart = () => {
+      console.log('🗣️ Speech detected - user started speaking');
+    };
+
+    recognition.onspeechend = () => {
+      console.log('🔇 Speech ended - user stopped speaking');
     };
 
     recognition.onerror = (event: any) => {
@@ -116,7 +221,7 @@ export const useSpeechRecognition = () => {
       const errorMessages: Record<string, string> = {
         'network': 'Network error occurred. Please check your connection.',
         'not-allowed': 'Microphone access denied. Please allow microphone access.',
-        'no-speech': 'No speech detected. Please speak clearly.',
+        'no-speech': 'No speech detected. Please speak more clearly and closer to the microphone.',
         'audio-capture': 'Audio capture failed. Please check your microphone.',
         'service-not-allowed': 'Speech recognition service not available.',
         'bad-grammar': 'Grammar error in speech recognition.',
@@ -131,7 +236,7 @@ export const useSpeechRecognition = () => {
     };
 
     recognition.onend = () => {
-      console.log('Speech recognition ended');
+      console.log('🏁 Speech recognition ended');
       setListening(false);
       
       // Stop audio recording if active
@@ -140,7 +245,7 @@ export const useSpeechRecognition = () => {
       }
     };
 
-  }, [currentLanguage, setListening, setError, addToRecitationHistory, sendTextInput]);
+  }, [currentLanguage, setListening, setError, addToRecitationHistory, addMessage, sendTextInput]);
 
   // Start listening
   const startListening = useCallback(async () => {
@@ -174,6 +279,9 @@ export const useSpeechRecognition = () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       stream.getTracks().forEach(track => track.stop());
       
+      // Start microphone monitoring
+      startMicrophoneMonitoring();
+      
       // Start speech recognition
       recognitionRef.current.start();
       console.log('🎯 Speech recognition start() called');
@@ -191,7 +299,7 @@ export const useSpeechRecognition = () => {
         setError(`Failed to access microphone: ${err.message || 'Unknown error'}`);
       }
     }
-  }, [setError, isListening]);
+  }, [setError, isListening, startMicrophoneMonitoring]);
 
   // Stop listening
   const stopListening = useCallback(() => {
@@ -203,8 +311,11 @@ export const useSpeechRecognition = () => {
       mediaRecorderRef.current.stop();
     }
     
+    // Stop microphone monitoring
+    stopMicrophoneMonitoring();
+    
     setListening(false);
-  }, [setListening]);
+  }, [setListening, stopMicrophoneMonitoring]);
 
   // Setup speech recognition when instance is created or language changes
   useEffect(() => {
@@ -224,6 +335,9 @@ export const useSpeechRecognition = () => {
     isSupported,
     isListening,
     startListening,
-    stopListening
+    stopListening,
+    isMicrophoneMuted,
+    microphoneLevel,
+    isMonitoring
   };
 };

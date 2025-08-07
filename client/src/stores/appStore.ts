@@ -101,7 +101,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   setMicrophoneEnabled: (enabled) => set({ isMicrophoneEnabled: enabled }),
   
   addMessage: (message) => {
+    console.log('🏪 Store: Adding message to chat:', message);
     const messages = [...get().messages, message];
+    console.log('🏪 Store: Total messages now:', messages.length);
     set({ messages });
   },
   

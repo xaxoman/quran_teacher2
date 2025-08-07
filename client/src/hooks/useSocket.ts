@@ -141,7 +141,7 @@ export const useSocket = () => {
   };
 
   // Send text input
-  const sendTextInput = (text: string) => {
+  const sendTextInput = (text: string, skipUserMessage = false) => {
     console.log('sendTextInput called with:', text);
     console.log('Socket connected:', !!socketRef.current?.connected);
     console.log('Session ID:', sessionId);
@@ -150,13 +150,15 @@ export const useSocket = () => {
       console.log('Sending text input to server...');
       setProcessing(true);
       
-      // Add user message immediately
-      addMessage({
-        id: `user-${Date.now()}`,
-        type: 'user',
-        text,
-        timestamp: new Date()
-      });
+      // Add user message immediately (unless skipped for speech recognition)
+      if (!skipUserMessage) {
+        addMessage({
+          id: `user-${Date.now()}`,
+          type: 'user',
+          text,
+          timestamp: new Date()
+        });
+      }
 
       socketRef.current.emit('text-input', {
         sessionId,

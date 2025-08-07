@@ -28,11 +28,14 @@ export const RecitationInterface: React.FC = () => {
   } = useAppStore();
   
   // Hooks for advanced features
-  const { startSession, requestFeedback, sendTextInput } = useSocket();
+  const { startSession, requestFeedback } = useSocket();
   const { 
     isSupported: isSpeechSupported,
     startListening,
-    stopListening
+    stopListening,
+    isMicrophoneMuted,
+    microphoneLevel,
+    isMonitoring
   } = useSpeechRecognition();
   const { playMessageAudio, AudioElement } = useAudioPlayer();
 
@@ -320,12 +323,68 @@ export const RecitationInterface: React.FC = () => {
                 {t('speakNow')}
               </div>
             )}
+
+            {/* Microphone Status */}
+            {(isListening || isMonitoring) && (
+              <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
+                {/* Mute Status */}
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.5rem',
+                  padding: '0.25rem 0.75rem',
+                  borderRadius: '1rem',
+                  backgroundColor: isMicrophoneMuted ? '#fef2f2' : '#f0fdf4',
+                  border: `1px solid ${isMicrophoneMuted ? '#fecaca' : '#bbf7d0'}`,
+                  fontSize: '0.875rem'
+                }}>
+                  <span style={{ fontSize: '1rem' }}>
+                    {isMicrophoneMuted ? '🔇' : '🎤'}
+                  </span>
+                  <span style={{ color: isMicrophoneMuted ? '#dc2626' : '#16a34a', fontWeight: '500' }}>
+                    {isMicrophoneMuted ? 'Mic Muted' : 'Mic Active'}
+                  </span>
+                </div>
+
+                {/* Volume Level */}
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.5rem',
+                  fontSize: '0.875rem',
+                  color: '#6b7280'
+                }}>
+                  <span>🔊</span>
+                  <div style={{
+                    width: '60px',
+                    height: '4px',
+                    backgroundColor: '#e5e7eb',
+                    borderRadius: '2px',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${microphoneLevel * 100}%`,
+                      height: '100%',
+                      backgroundColor: microphoneLevel > 0.1 ? '#10b981' : '#ef4444',
+                      transition: 'width 0.1s ease-out'
+                    }} />
+                  </div>
+                  <span style={{ fontSize: '0.75rem', minWidth: '30px' }}>
+                    {Math.round(microphoneLevel * 100)}%
+                  </span>
+                </div>
+              </div>
+            )}
             
             {/* Debug info */}
             <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.5rem' }}>
               Speech Support: {isSpeechSupported ? '✅' : '❌'} | 
               Connected: {isConnected ? '✅' : '❌'} | 
-              Session: {sessionId ? '✅' : '❌'}
+              Session: {sessionId ? '✅' : '❌'} | 
+              Monitoring: {isMonitoring ? '✅' : '❌'} | 
+              Listening: {isListening ? '✅' : '❌'} | 
+              Muted: {isMicrophoneMuted ? '🔇' : '🎤'} | 
+              Level: {Math.round(microphoneLevel * 100)}%
             </div>
           </div>
 
@@ -371,6 +430,25 @@ export const RecitationInterface: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Microphone Mute Warning */}
+          {(isListening || isMonitoring) && isMicrophoneMuted && (
+            <div style={{
+              margin: '1rem 0',
+              padding: '1rem',
+              backgroundColor: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '0.5rem',
+              textAlign: 'center'
+            }}>
+              <div style={{ color: '#dc2626', fontWeight: '500', marginBottom: '0.5rem' }}>
+                🔇 Microphone appears to be muted
+              </div>
+              <div style={{ color: '#7f1d1d', fontSize: '0.875rem' }}>
+                Please check your microphone settings and ensure it's not muted in your system settings or browser.
+              </div>
+            </div>
+          )}
         </div>
       </div>
       
