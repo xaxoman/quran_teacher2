@@ -27,25 +27,51 @@ export const TTSTestPanel: React.FC = () => {
   const handleTestTTS = async (text: string) => {
     if (!text.trim()) return;
 
-    // Create a mock TTS instruction
-    const ttsInstruction = {
-      text: text,
-      language: selectedLanguage,
-      voiceConfig: {
-        language: selectedLanguage === 'ar' ? 'ar-SA' : selectedLanguage === 'it' ? 'it-IT' : 'en-US',
-        voiceId: selectedLanguage === 'ar' ? 'male-reverent' : 'female-warm',
-        speed: selectedLanguage === 'ar' ? 0.8 : 0.9,
-        pitch: selectedLanguage === 'ar' ? 0.9 : 1.0,
-        volume: 0.8
-      },
-      timestamp: Date.now()
-    };
+    try {
+      console.log(`🎙️ Testing Gemini TTS with: "${text.substring(0, 50)}..." in ${selectedLanguage}`);
+      
+      // Call the actual Gemini TTS endpoint on the server
+      const response = await fetch('/api/tts/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: text,
+          language: selectedLanguage
+        })
+      });
 
-    const instructionString = JSON.stringify(ttsInstruction);
-    const base64Instruction = btoa(instructionString);
-    const ttsData = `tts-instruction:${base64Instruction}`;
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ TTS test HTTP error:', response.status, errorText);
+        
+        // Check if it's a HTML error page
+        if (errorText.includes('<!DOCTYPE') || errorText.includes('<html>')) {
+          throw new Error(`Server returned HTML error page instead of JSON (HTTP ${response.status})`);
+        }
+        
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+      }
 
-    await playAudio(ttsData);
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const responseText = await response.text();
+        console.error('❌ Expected JSON but got:', contentType, responseText.substring(0, 200));
+        throw new Error('Server returned non-JSON response');
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.audioData) {
+        console.log('✅ Gemini TTS audio received, playing...');
+        await playAudio(result.audioData);
+      } else {
+        console.error('❌ TTS test failed:', result.error || 'Unknown error');
+      }
+    } catch (error) {
+      console.error('❌ Error testing TTS:', error);
+    }
   };
 
   const handleCustomTest = () => {
@@ -65,22 +91,16 @@ export const TTSTestPanel: React.FC = () => {
       backgroundColor: '#f9fafb'
     }}>
       <h3 style={{ marginBottom: '1rem', color: '#374151', fontWeight: '600' }}>
-        🎙️ Multi-Lingual TTS Test Panel
+        🎙️ Gemini TTS Test Panel
       </h3>
 
       {/* TTS Support Status */}
-      <div style={{ marginBottom: '1rem', padding: '0.5rem', backgroundColor: isSupported ? '#f0fdf4' : '#fef2f2', borderRadius: '0.25rem' }}>
-        <strong>Browser TTS Support:</strong> {isSupported ? '✅ Supported' : '❌ Not Supported'}
-        {isSupported && (
-          <span style={{ marginLeft: '1rem', fontSize: '0.875rem', color: '#6b7280' }}>
-            ({voices.length} voices available)
-          </span>
-        )}
-        {!isSupported && (
-          <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#dc2626' }}>
-            <strong>Note:</strong> This is for testing browser TTS only. The main app uses server-side Gemini TTS which works perfectly regardless of browser support.
-          </div>
-        )}
+      <div style={{ marginBottom: '1rem', padding: '0.5rem', backgroundColor: '#f0fdf4', borderRadius: '0.25rem' }}>
+        <strong>Gemini TTS Status:</strong> ✅ Active
+        <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#16a34a' }}>
+          <strong>Note:</strong> This panel tests the actual Gemini TTS system used by the app. 
+          It generates high-quality multi-lingual audio using Google's AI models.
+        </div>
       </div>
 
       {/* Language Selection */}
@@ -219,10 +239,10 @@ export const TTSTestPanel: React.FC = () => {
       }}>
         <strong>🔧 How it works:</strong>
         <ul style={{ marginTop: '0.5rem', marginLeft: '1rem' }}>
-          <li>Server generates TTS instructions with language-specific voice configurations</li>
-          <li>Client receives instructions and uses enhanced Speech Synthesis API</li>
-          <li>Voice selection is optimized for each language (Arabic: reverent male, English/Italian: warm female)</li>
-          <li>Speech rate, pitch, and volume are adjusted per language for optimal experience</li>
+          <li>Calls the actual Gemini TTS API used by the main application</li>
+          <li>Generates high-quality audio using Google's AI models with appropriate voices</li>
+          <li>Voice selection: English (Puck), Arabic (Aoede), Italian (Kore)</li>
+          <li>Audio is returned as data:audio/wav;base64 format and played directly</li>
         </ul>
       </div>
     </div>

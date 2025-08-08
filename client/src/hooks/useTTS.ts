@@ -78,7 +78,8 @@ export const useTTS = () => {
         return;
       }
 
-      console.log('⚠️ Unknown audio format, skipping playback');
+      console.log('⚠️ Unknown audio format, cannot play:', audioData.substring(0, 50) + '...');
+      console.log('💡 Expected formats: "tts-instruction:..." or "data:audio/..."');
       
     } catch (error) {
       console.error('❌ Error playing audio:', error);
@@ -194,12 +195,7 @@ export const useTTS = () => {
     if (!isSupported) {
       console.log('ℹ️ Browser Speech Synthesis not supported - this is normal and expected');
       console.log('🔄 The app uses Gemini TTS primarily, browser TTS is only for testing');
-      // Don't return here - try to play as regular audio instead
-      try {
-        await playBase64Audio(`data:audio/wav;base64,${btoa(instruction.text)}`);
-      } catch (error) {
-        console.error('❌ Fallback audio playback failed:', error);
-      }
+      console.log('⚠️ Cannot test TTS instruction without Speech Synthesis API - skipping playback');
       return;
     }
 
@@ -260,6 +256,15 @@ export const useTTS = () => {
   const playBase64Audio = useCallback(async (base64Audio: string) => {
     try {
       setIsPlaying(true);
+      console.log('🎵 Attempting to play audio format:', base64Audio.substring(0, 50) + '...');
+      
+      // Check for unsupported audio formats
+      if (base64Audio.includes('audio/L16') || base64Audio.includes('codec=pcm')) {
+        console.log('⚠️ Unsupported audio format detected (L16/PCM), cannot play in browser');
+        console.log('💡 This format is typically used for telephony - browser needs WAV/MP3/AAC');
+        setIsPlaying(false);
+        return;
+      }
       
       // Create audio element if it doesn't exist
       if (!audioRef.current) {
@@ -269,8 +274,26 @@ export const useTTS = () => {
       const audio = audioRef.current;
       audio.src = base64Audio;
       
+      // Add more detailed event handlers
+      audio.onloadstart = () => {
+        console.log('🔄 Audio loading started');
+      };
+
+      audio.onloadedmetadata = () => {
+        console.log('� Audio metadata loaded:', {
+          duration: audio.duration,
+          readyState: audio.readyState
+        });
+      };
+
       audio.onloadeddata = () => {
-        console.log('🔊 Base64 audio loaded, starting playback');
+        console.log('�🔊 Base64 audio loaded, starting playback');
+        console.log('📊 Audio info:', {
+          src: audio.src.substring(0, 100) + '...',
+          duration: audio.duration,
+          readyState: audio.readyState,
+          networkState: audio.networkState
+        });
       };
 
       audio.onended = () => {
@@ -278,15 +301,32 @@ export const useTTS = () => {
         setIsPlaying(false);
       };
 
-      audio.onerror = (error) => {
-        console.error('❌ Base64 audio playback error:', error);
+      audio.onerror = (event) => {
+        console.error('❌ Base64 audio playback error:', event);
+        console.error('🔍 Audio error details:', {
+          error: audio.error,
+          code: audio.error?.code,
+          message: audio.error?.message,
+          src: audio.src.substring(0, 100) + '...',
+          readyState: audio.readyState,
+          networkState: audio.networkState
+        });
         setIsPlaying(false);
+      };
+
+      audio.oncanplay = () => {
+        console.log('✅ Audio can start playing');
       };
 
       await audio.play();
 
     } catch (error) {
       console.error('❌ Error playing base64 audio:', error);
+      console.error('🔍 Detailed error info:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        audioFormat: base64Audio.substring(0, 50) + '...'
+      });
       setIsPlaying(false);
     }
   }, []);

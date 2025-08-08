@@ -53,6 +53,20 @@ export class TTSService {
 
       if (audioDataBase64 && mimeType) {
         console.log(`✅ TTS audio received successfully (MIME type: ${mimeType})`);
+        
+        // Check if the format is L16 PCM and needs conversion
+        if (mimeType.includes('audio/L16') || mimeType.includes('codec=pcm')) {
+          console.log('🔄 Converting L16 PCM to WAV format for browser compatibility...');
+          try {
+            const wavData = this.convertPCMToWAV(audioDataBase64);
+            return `data:audio/wav;base64,${wavData}`;
+          } catch (conversionError) {
+            console.error('❌ Failed to convert PCM to WAV:', conversionError);
+            // Return null rather than unusable audio
+            return null;
+          }
+        }
+        
         // Return a Data URL, which is directly playable in the browser's <audio> tag
         return `data:${mimeType};base64,${audioDataBase64}`;
       } else {
@@ -86,5 +100,63 @@ export class TTSService {
       'it': 'Kore'            // A standard Italian voice
     };
     return voiceMap[language] || 'Kore'; // Default to Kore
+  }
+
+  /**
+   * Convert PCM audio data to WAV format for browser compatibility
+   */
+  private convertPCMToWAV(pcmBase64: string): string {
+    try {
+      // Decode base64 PCM data
+      const pcmBuffer = Buffer.from(pcmBase64, 'base64');
+      
+      // WAV header for 16-bit PCM, 24kHz, mono
+      const sampleRate = 24000;
+      const numChannels = 1;
+      const bitsPerSample = 16;
+      const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+      const blockAlign = numChannels * bitsPerSample / 8;
+      const dataSize = pcmBuffer.length;
+      const fileSize = dataSize + 36;
+
+      // Create WAV header
+      const header = Buffer.alloc(44);
+      let offset = 0;
+
+      // ChunkID "RIFF"
+      header.write('RIFF', offset); offset += 4;
+      // ChunkSize
+      header.writeUInt32LE(fileSize, offset); offset += 4;
+      // Format "WAVE"
+      header.write('WAVE', offset); offset += 4;
+      // Subchunk1ID "fmt "
+      header.write('fmt ', offset); offset += 4;
+      // Subchunk1Size (16 for PCM)
+      header.writeUInt32LE(16, offset); offset += 4;
+      // AudioFormat (1 for PCM)
+      header.writeUInt16LE(1, offset); offset += 2;
+      // NumChannels
+      header.writeUInt16LE(numChannels, offset); offset += 2;
+      // SampleRate
+      header.writeUInt32LE(sampleRate, offset); offset += 4;
+      // ByteRate
+      header.writeUInt32LE(byteRate, offset); offset += 4;
+      // BlockAlign
+      header.writeUInt16LE(blockAlign, offset); offset += 2;
+      // BitsPerSample
+      header.writeUInt16LE(bitsPerSample, offset); offset += 2;
+      // Subchunk2ID "data"
+      header.write('data', offset); offset += 4;
+      // Subchunk2Size
+      header.writeUInt32LE(dataSize, offset);
+
+      // Combine header and PCM data
+      const wavBuffer = Buffer.concat([header, pcmBuffer]);
+      
+      return wavBuffer.toString('base64');
+    } catch (error) {
+      console.error('Error converting PCM to WAV:', error);
+      throw error;
+    }
   }
 }

@@ -158,7 +158,7 @@ export class RecitationService {
     }
   }
 
-  private async generateAudio(text: string, language: string): Promise<string | undefined> {
+  public async generateAudio(text: string, language: string): Promise<string | undefined> {
     try {
       console.log(`🎙️ Generating TTS for: "${text.substring(0, 50)}..." in ${language}`);
       

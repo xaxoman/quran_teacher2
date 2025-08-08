@@ -78,6 +78,37 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
+// TTS test endpoint for development
+app.post('/api/tts/test', async (req, res) => {
+  try {
+    const { text, language = 'en' } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({ success: false, error: 'Text is required' });
+    }
+
+    console.log(`🎙️ TTS test request: "${text.substring(0, 50)}..." in ${language}`);
+    
+    const audioData = await recitationService.generateAudio(text, language);
+    
+    if (audioData) {
+      console.log('✅ TTS test audio generated successfully');
+      console.log('🔍 Audio format:', audioData.substring(0, 50) + '...');
+      res.json({ success: true, audioData });
+    } else {
+      console.log('⚠️ TTS test generation failed');
+      res.status(500).json({ success: false, error: 'TTS generation failed' });
+    }
+  } catch (error) {
+    console.error('❌ Error in TTS test endpoint:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
