@@ -78,8 +78,35 @@ export class TTSService {
       if (axios.isAxiosError(error)) {
         const axiosError = error as AxiosError;
         if (axiosError.response) {
-          console.error('Error Status:', axiosError.response.status);
-          console.error('Error Data:', JSON.stringify(axiosError.response.data, null, 2));
+          const status = axiosError.response.status;
+          const errorData = axiosError.response.data as any;
+          
+          console.error('Error Status:', status);
+          console.error('Error Data:', JSON.stringify(errorData, null, 2));
+          
+          // Handle quota exceeded gracefully
+          if (status === 429) {
+            const quotaDetails = errorData?.error?.details?.find((d: any) => 
+              d['@type']?.includes('QuotaFailure'));
+            const retryInfo = errorData?.error?.details?.find((d: any) => 
+              d['@type']?.includes('RetryInfo'));
+            
+            if (quotaDetails) {
+              console.log('📊 Quota Information:');
+              quotaDetails.violations?.forEach((violation: any) => {
+                console.log(`   • Metric: ${violation.quotaMetric}`);
+                console.log(`   • Limit: ${violation.quotaValue} requests`);
+                console.log(`   • Model: ${violation.quotaDimensions?.model}`);
+              });
+            }
+            
+            if (retryInfo?.retryDelay) {
+              console.log(`⏰ Suggested retry delay: ${retryInfo.retryDelay}`);
+            }
+            
+            console.log('💡 Consider upgrading to a paid plan for higher quotas');
+            console.log('🔗 More info: https://ai.google.dev/gemini-api/docs/rate-limits');
+          }
         } else {
           console.error('Error Request:', axiosError.request);
         }

@@ -96,8 +96,13 @@ app.post('/api/tts/test', async (req, res) => {
       console.log('🔍 Audio format:', audioData.substring(0, 50) + '...');
       res.json({ success: true, audioData });
     } else {
-      console.log('⚠️ TTS test generation failed');
-      res.status(500).json({ success: false, error: 'TTS generation failed' });
+      console.log('⚠️ TTS test generation failed - likely quota exceeded or API issue');
+      res.status(503).json({ 
+        success: false, 
+        error: 'TTS generation temporarily unavailable',
+        message: 'This could be due to API quota limits or temporary service issues. The main app functionality will continue to work with text-only responses.',
+        suggestion: 'Try again later or check the server logs for more details.'
+      });
     }
   } catch (error) {
     console.error('❌ Error in TTS test endpoint:', error);
