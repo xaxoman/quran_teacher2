@@ -62,15 +62,22 @@ export const useSocket = () => {
       console.log('🤖 Received AI response:', data);
       setProcessing(false);
       
-      addMessage({
-        id: `ai-${Date.now()}`,
-        type: 'ai',
-        text: data.text,
-        audio: data.audio,
-        timestamp: new Date(),
-        messageType: data.type,
-        transcription: data.transcription
-      });
+      try {
+        addMessage({
+          id: `ai-${Date.now()}`,
+          type: 'ai',
+          text: data.text,
+          audio: data.audio,
+          timestamp: new Date(),
+          messageType: data.type,
+          transcription: data.transcription
+        });
+        console.log('✅ AI message added successfully');
+      } catch (error) {
+        console.error('❌ Error processing AI response:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        setError(`Failed to process AI response: ${errorMessage}`);
+      }
     });
 
     socket.on('feedback-response', (data) => {

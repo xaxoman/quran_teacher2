@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../stores/appStore';
 import { useSocket } from '../hooks/useSocket';
@@ -39,6 +39,9 @@ export const RecitationInterface: React.FC = () => {
     isMonitoring
   } = useSpeechRecognition();
   const { playMessageAudio, AudioElement, isPlaying: isAudioPlaying } = useAudioPlayer();
+  // Track first AI message skip and last played id
+  const hasSkippedFirstAIRef = useRef(false);
+  const lastPlayedMessageIdRef = useRef<string | null>(null);
 
   // Popular surahs for quick selection
   const popularSurahs = [
@@ -80,10 +83,8 @@ export const RecitationInterface: React.FC = () => {
           messageType: 'response'
         });
         
-        // Auto-play greeting audio if available
-        if (response.greeting?.audio) {
-          playMessageAudio(response.greeting.audio);
-        }
+        // Do NOT auto-play the first AI message (greeting)
+        hasSkippedFirstAIRef.current = true;
         
         console.log('Session started successfully:', response.sessionId);
       } else {
@@ -111,7 +112,75 @@ export const RecitationInterface: React.FC = () => {
     setShowSurahSelector(true);
     setSessionId(null);
     setCurrentSurah(null);
+    // Reset TTS auto-play tracking for new session
+    hasSkippedFirstAIRef.current = false;
+    lastPlayedMessageIdRef.current = null;
   };
+
+  // Auto-play any new AI message audio except the first one
+  useEffect(() => {
+    if (!messages || messages.length === 0) return;
+    const lastMessage = messages[messages.length - 1];
+
+    // Only auto-play AI messages with audio
+    if (lastMessage.type === 'ai' && lastMessage.audio) {
+      console.log('🎵 New AI message with audio detected:', lastMessage.id);
+      
+      // Skip if it's the first AI message (greeting)
+      if (!hasSkippedFirstAIRef.current) {
+        console.log('🔕 Skipping first AI message auto-play (greeting)');
+        hasSkippedFirstAIRef.current = true;
+        return;
+      }
+      
+      // Avoid replaying the same message
+      if (lastPlayedMessageIdRef.current === lastMessage.id) {
+        console.log('🔁 Message already played, skipping:', lastMessage.id);
+        return;
+      }
+
+      console.log('🔊 Auto-playing AI message audio:', lastMessage.id);
+      lastPlayedMessageIdRef.current = lastMessage.id;
+      
+      // Add a longer delay to ensure message rendering is complete and avoid conflicts
+      const playTimeout = setTimeout(() => {
+        playMessageAudio(lastMessage.audio!)
+          .then(() => {
+            console.log('✅ Auto-play successful for message:', lastMessage.id);
+          })
+          .catch(error => {
+            console.warn('⚠️ Auto-play failed (this is normal if user hasn\'t interacted with page yet):', error);
+            console.error('🔍 Full error details:', {
+              name: error.name,
+              message: error.message,
+              stack: error.stack,
+              type: typeof error,
+              error: error
+            });
+            
+            // If auto-play fails, show a notification to the user
+            if (error.name === 'NotAllowedError') {
+              console.log('💡 Tip: Click anywhere on the page to enable audio auto-play');
+            } else if (error.message?.includes('TTS failed') || error.message?.includes('quota')) {
+              console.log('🔧 TTS service issue - you can try the manual play button below the message');
+              setError('TTS service temporarily unavailable. You can still use text responses.');
+            } else if (error.name === 'AbortError') {
+              console.log('ℹ️ Audio was interrupted (likely due to rapid message updates)');
+            } else {
+              console.log('💡 Auto-play failed - manual play button available below the message');
+              console.log('🔧 Error type:', error.name, '| Message:', error.message);
+              // Show a user-friendly error for unexpected issues
+              setError(`Audio playback issue: ${error.message}. Manual play buttons are available.`);
+            }
+          });
+      }, 300); // Increased delay for better reliability
+
+      // Cleanup timeout on unmount or message change
+      return () => {
+        clearTimeout(playTimeout);
+      };
+    }
+  }, [messages, playMessageAudio]);
 
   if (showSurahSelector || !sessionId) {
     return (
@@ -294,6 +363,28 @@ export const RecitationInterface: React.FC = () => {
               >
                 <div className="message-content">
                   <div>{message.text}</div>
+                  {message.type === 'ai' && message.audio && (
+                    <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <button
+                        onClick={() => playMessageAudio(message.audio!)}
+                        disabled={isAudioPlaying}
+                        className="btn btn-secondary"
+                        style={{ 
+                          fontSize: '0.75rem', 
+                          padding: '0.25rem 0.5rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.25rem'
+                        }}
+                        title="Play AI response audio"
+                      >
+                        🔊 Play Audio
+                      </button>
+                      <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                        {isAudioPlaying ? '🎵 Playing...' : '🔇 Ready'}
+                      </span>
+                    </div>
+                  )}
                   <div className="message-time">
                     {message.timestamp.toLocaleTimeString()}
                   </div>
@@ -391,7 +482,9 @@ export const RecitationInterface: React.FC = () => {
               Listening: {isListening ? '✅' : '❌'} | 
               Audio: {isAudioPlaying ? '🔊' : '🔇'} | 
               Muted: {isMicrophoneMuted ? '🔇' : '🎤'} | 
-              Level: {Math.round(microphoneLevel * 100)}%
+              Level: {Math.round(microphoneLevel * 100)}% | 
+              TTS AutoPlay: {hasSkippedFirstAIRef.current ? '✅' : '🔕'} | 
+              Last Played: {lastPlayedMessageIdRef.current ? lastPlayedMessageIdRef.current.substring(0, 8) + '...' : 'None'}
             </div>
           </div>
 

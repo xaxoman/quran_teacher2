@@ -182,6 +182,17 @@ export const useAudioPlayer = () => {
   const playMessageAudio = async (audioData: string) => {
     try {
       console.log('🔊 Playing message audio:', audioData?.substring(0, 50) + '...');
+      
+      // Stop any current audio first to prevent conflicts
+      if (audioRef.current && !audioRef.current.paused) {
+        console.log('🔇 Stopping current audio to play new message');
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+        // Wait for the pause to complete
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      stopTTSAudio();
+      
       setCurrentAudio(audioData);
 
       // Check if this is TTS instruction
@@ -193,15 +204,53 @@ export const useAudioPlayer = () => {
 
       // Handle regular audio
       if (audioRef.current && (audioData.startsWith('data:audio/') || audioData.startsWith('http'))) {
-        audioRef.current.src = audioData;
-        await audioRef.current.play();
+        // Ensure the audio element is ready and create a new one if needed
+        if (!audioRef.current || audioRef.current.readyState === 0) {
+          console.log('🔄 Creating new audio element for better reliability');
+          audioRef.current = new Audio();
+        }
+        
+        const audio = audioRef.current;
+        audio.src = audioData;
+        
+        // Wait for the audio to be loadable
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('Audio load timeout')), 5000);
+          
+          audio.oncanplay = () => {
+            clearTimeout(timeout);
+            resolve(true);
+          };
+          
+          audio.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error('Audio load failed'));
+          };
+          
+          // Trigger loading
+          audio.load();
+        });
+        
+        await audio.play();
         setIsPlaying(true);
+        console.log('✅ Audio started playing successfully');
       } else {
         console.log('⚠️ No valid audio data provided or audio element not ready');
       }
     } catch (error) {
       console.error('❌ Error playing message audio:', error);
       setIsPlaying(false);
+      
+      // Don't throw the error - just log it and continue
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          console.log('ℹ️ Audio playback was interrupted (this can happen during rapid message updates)');
+        } else if (error.name === 'NotAllowedError') {
+          console.log('ℹ️ Audio autoplay blocked by browser - user interaction required');
+        } else if (error.message === 'Audio load timeout' || error.message === 'Audio load failed') {
+          console.log('ℹ️ Audio failed to load - this may be due to network issues or invalid audio data');
+        }
+      }
     }
   };
 

@@ -47,7 +47,8 @@ export class TTSService {
       });
 
       // Extract the audio data from the API response
-      const audioPart = response.data.candidates?.[0]?.content?.parts?.[0];
+      const candidate = response.data.candidates?.[0];
+      const audioPart = candidate?.content?.parts?.[0];
       const audioDataBase64 = audioPart?.inlineData?.data;
       const mimeType = audioPart?.inlineData?.mimeType; // e.g., "audio/wav" or "audio/mp3"
 
@@ -70,7 +71,23 @@ export class TTSService {
         // Return a Data URL, which is directly playable in the browser's <audio> tag
         return `data:${mimeType};base64,${audioDataBase64}`;
       } else {
-        console.error('❌ No audio content found in API response.', JSON.stringify(response.data, null, 2));
+        // Enhanced error logging for TTS failures
+        console.error('❌ No audio content found in API response.');
+        console.error('🔍 Response details:', JSON.stringify(response.data, null, 2));
+        
+        if (candidate?.finishReason) {
+          console.error(`📋 Finish reason: ${candidate.finishReason}`);
+          
+          if (candidate.finishReason === 'OTHER') {
+            console.error('💡 TTS failed - this could be due to:');
+            console.error('   • Quota exceeded (free tier: 15 requests/day)');
+            console.error('   • Content contains unsupported characters or formatting');
+            console.error('   • Text is too long for TTS generation');
+            console.error('   • API service temporarily unavailable');
+            console.error('🔗 Check quota: https://console.cloud.google.com/apis/api/generativelanguage.googleapis.com/quotas');
+          }
+        }
+        
         return null;
       }
     } catch (error) {

@@ -78,6 +78,38 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
+// Quick TTS status check endpoint
+app.get('/api/tts/status', async (req, res) => {
+  try {
+    console.log('🔍 Checking TTS service status...');
+    
+    // Try a minimal test with a short message
+    const testAudio = await recitationService.generateAudio('Test', 'en');
+    
+    if (testAudio) {
+      res.json({ 
+        status: 'available', 
+        message: 'TTS service is working correctly',
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.json({ 
+        status: 'unavailable', 
+        message: 'TTS service is currently unavailable (likely quota exceeded)',
+        timestamp: new Date().toISOString(),
+        suggestion: 'Check Google Cloud Console for quota status'
+      });
+    }
+  } catch (error) {
+    console.error('❌ TTS status check failed:', error);
+    res.status(500).json({ 
+      status: 'error', 
+      message: 'TTS service error: ' + (error instanceof Error ? error.message : String(error)),
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // TTS test endpoint for development
 app.post('/api/tts/test', async (req, res) => {
   try {
@@ -174,7 +206,19 @@ io.on('connection', (socket) => {
       socket.emit('ai-response', response);
     } catch (error) {
       console.error('❌ Error processing text:', error);
-      socket.emit('error', { message: 'Failed to process text' });
+      console.error('🔍 Full error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : 'No stack trace',
+        sessionId: data.sessionId,
+        inputText: data.text?.substring(0, 100) + '...'
+      });
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      socket.emit('error', { 
+        message: `Failed to process text: ${errorMessage}`,
+        details: 'Check server logs for more information'
+      });
     }
   });
 
@@ -200,6 +244,50 @@ io.on('connection', (socket) => {
     // Sessions will be cleaned up by the automatic cleanup after 1 hour of inactivity
     console.log('💡 Session preserved for potential reconnection');
   });
+});
+
+// Debug endpoint to test AI response generation
+app.post('/api/debug/ai-response', async (req, res) => {
+  try {
+    const { sessionId, text } = req.body;
+    
+    if (!sessionId || !text) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'sessionId and text are required' 
+      });
+    }
+
+    console.log(`🔍 Debug AI response test for session: ${sessionId}, text: "${text.substring(0, 50)}..."`);
+    
+    const session = sessionManager.getSession(sessionId);
+    if (!session) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Session not found' 
+      });
+    }
+
+    const response = await recitationService.processText(text, session);
+    
+    res.json({ 
+      success: true, 
+      response,
+      debug: {
+        sessionExists: !!session,
+        responseType: response.type,
+        hasAudio: !!response.audio,
+        textLength: response.text?.length || 0
+      }
+    });
+  } catch (error) {
+    console.error('❌ Debug AI response test failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
+  }
 });
 
 const PORT = process.env.PORT || 3001;
