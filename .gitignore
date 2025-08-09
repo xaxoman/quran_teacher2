@@ -1,0 +1,40 @@
+#ignore sensitive data and useless files to commit
+# Ignore node_modules
+node_modules/
+
+# Ignore build output
+build/
+
+# Ignore logs
+logs/
+
+# Ignore environment variables
+.env
+
+# Ignore IDE/editor specific files
+.vscode/
+
+# Ignore temporary files
+*.tmp
+
+# Ignore coverage reports
+coverage/
+
+# Ignore test files
+*.test.js
+
+# Ignore configuration files
+*.config.js
+
+# Ignore package lock files
+package-lock.json
+
+# Ignore yarn lock files
+yarn.lock
+
+# Ignore specific files that are not needed in the repository
+.DS_Store
+
+# Ignore specific files that are not needed in the repository
+*.log
+
